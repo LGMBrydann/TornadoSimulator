@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>🌪️ Tornado Simulator EF6 🌪️</title>
+<style>
+  body {
+    background: #111;
+    color: #eee;
+    font-family: 'Consolas', monospace;
+    max-width: 600px;
+    margin: 20px auto;
+    padding: 20px;
+    position: relative;
+    z-index: 1;
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 2;
+  }
+  .stats, .actions, .promo {
+    background: #222;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 8px;
+    position: relative;
+    z-index: 2;
+  }
+  button {
+    background: #333;
+    border: none;
+    color: #eee;
+    padding: 10px 15px;
+    margin: 5px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background 0.3s;
+  }
+  button:hover {
+    background: #555;
+  }
+  #log {
+    background: #222;
+    height: 200px;
+    overflow-y: auto;
+    padding: 10px;
+    white-space: pre-line;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-size: 14px;
+    position: relative;
+    z-index: 2;
+  }
+  input[type=text] {
+    padding: 8px;
+    width: 200px;
+    margin-right: 8px;
+    border-radius: 5px;
+    border: none;
+  }
+  .success {
+    color: #ffd700;
+  }
+  .failure {
+    color: #ff4c4c;
+  }
+  .upgrade {
+    color: #4caf50;
+  }
+  /* Tornado Canvas styling */
+  #tornadoCanvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+    background: transparent;
+    opacity: 0.2;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="tornadoCanvas"></canvas>
+
+<h1>🌪️ Tornado Simulator EF6 🌪️</h1>
+
+<div class="stats">
+  <p><strong>Player:</strong> <span id="usernameDisplay">Player</span></p>
+  <p><strong>Coins:</strong> <span id="coins">0</span></p>
+  <p><strong>Tornado Level:</strong> <span id="tornadoLevel">F1</span></p>
+  <p><strong>Power Upgrade Level:</strong> <span id="powerUpgrade">0</span></p>
+  <p><strong>Coin Multiplier:</strong> x<span id="coinMultiplier">1</span></p>
+  <p><strong>Towns Destroyed:</strong> <span id="townsDestroyed">0</span></p>
+</div>
+
+<div class="actions">
+  <button id="spawnBtn">Spawn Tornado</button>
+  <button id="upgradeTornadoBtn">Upgrade Tornado</button>
+  <button id="upgradePowerBtn">Upgrade Power</button>
+  <button id="upgradeMultiplierBtn">Upgrade Coin Multiplier</button>
+</div>
+
+<div class="promo">
+  <input type="text" id="promoInput" placeholder="Enter promo code" />
+  <button id="promoBtn">Redeem Promo Code</button>
+</div>
+
+<div id="log"></div>
+
+<!-- Audio elements -->
+<audio id="audioSuccess" src="audio/success-tornado.wav"></audio>
+<audio id="audioFail" src="audio/failed.wav"></audio>
+<audio id="audioEf6" src="audio/ef6-reached.wav"></audio>
+<audio id="audioIntro" src="audio/introsnd165.wav" loop></audio>
+<audio id="audioFunkytown" src="audio/funkytown.wav" loop></audio>
+
+<script>
+(() => {
+  const levels = {
+    1: { name: "F1", damage: 10, cost: 0 },
+    2: { name: "F2", damage: 25, cost: 50 },
+    3: { name: "F3", damage: 50, cost: 100 },
+    4: { name: "F4", damage: 100, cost: 200 },
+    5: { name: "F5", damage: 200, cost: 500 },
+    6: { name: "EF6", damage: 400, cost: 1000 }
+  };
+
+  const promoCodesMaster = {
+    "FIRSTRELEASE2025": { power_upgrade: 1 },
+    "LRACE2": { coins: 5000 },
+    "500YTSUBS": { coins: 10000 },
+    "YT2025.": { coins: 3000 },
+    "FUNKAY88": { coins: 999999 }
+  };
+
+  // DOM Elements
+  const coinsEl = document.getElementById("coins");
+  const tornadoLevelEl = document.getElementById("tornadoLevel");
+  const powerUpgradeEl = document.getElementById("powerUpgrade");
+  const coinMultiplierEl = document.getElementById("coinMultiplier");
+  const townsDestroyedEl = document.getElementById("townsDestroyed");
+  const logEl = document.getElementById("log");
+  const usernameDisplayEl = document.getElementById("usernameDisplay");
+  const promoInputEl = document.getElementById("promoInput");
+
+  const audioSuccess = document.getElementById("audioSuccess");
+  const audioFail = document.getElementById("audioFail");
+  const audioEf6 = document.getElementById("audioEf6");
+  const audioIntro = document.getElementById("audioIntro");
+  const audioFunkytown = document.getElementById("audioFunkytown");
+
+  // Tornado animation setup
+  const canvas = document.getElementById("tornadoCanvas");
+  const ctx = canvas.getContext("2d");
+  let tornadoAnimId = null;
+  let tornadoAngle = 0;
+  let tornadoAnimating = false;
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+
+  function drawTornado(angle) {
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    ctx.strokeStyle = "rgba(200, 200, 255, 0.4)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    for (let i = 0; i < 20; i++) {
+      const r = i * 10;
+      const theta = i * 0.5;
+      const x = r * Math.cos(theta);
+      const y = r * Math.sin(theta) * 0.6;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function startTornadoAnimation(durationMs = 3000) {
+    if (tornadoAnimating) return;
+    tornadoAnimating = true;
+    canvas.style.display = "block";
+    tornadoAngle = 0;
+
+    function animate() {
+      tornadoAngle += 0.05;
+      drawTornado(tornadoAngle);
+      tornadoAnimId = requestAnimationFrame(animate);
+    }
+
+    animate();
+
+    setTimeout(() => {
+      tornadoAnimating = false;
+      cancelAnimationFrame(tornadoAnimId);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.display = "none";
+    }, durationMs);
+  }
+
+  // Game state
+  let state = {
+    username: "Player",
+    coins: 500,
+    tornado_level: 1,
+    power_upgrade_level: 0,
+    coin_multiplier: 1,
+    towns_destroyed: 0,
+    usedPromoCodes: []
+  };
+
+  // Save/load functions
+  function saveState() {
+    localStorage.setItem("tornadoSimulatorState", JSON.stringify(state));
+  }
+
+  function loadState() {
+    const saved = localStorage.getItem("tornadoSimulatorState");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      state = Object.assign({}, state, parsed);
+      if (!Array.isArray(state.usedPromoCodes)) state.usedPromoCodes = [];
+    }
+  }
+
+  // UI update & logging
+  function log(msg, type = "") {
+    const p = document.createElement("p");
+    p.textContent = msg;
+    if (type === "success") p.classList.add("success");
+    else if (type === "failure") p.classList.add("failure");
+    else if (type === "upgrade") p.classList.add("upgrade");
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateUI() {
+    coinsEl.textContent = state.coins;
+    tornadoLevelEl.textContent = levels[state.tornado_level].name;
+    powerUpgradeEl.textContent = state.power_upgrade_level;
+    coinMultiplierEl.textContent = state.coin_multiplier;
+    townsDestroyedEl.textContent = state.towns_destroyed;
+    usernameDisplayEl.textContent = state.username;
+  }
+
+  // Play sounds safely
+  function playSound(audioElement) {
+    try {
+      audioElement.currentTime = 0;
+      audioElement.play();
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  function startIntroMusic() {
+    playSound(audioIntro);
+    playSound(audioFunkytown);
+  }
+
+  // Game actions
+  function spawnTornado() {
+    startTornadoAnimation(3000);
+    const basePower = levels[state.tornado_level].damage;
+    const totalPower = basePower + (state.power_upgrade_level * 20);
+    const townHp = Math.floor(Math.random() * 251) + 50;
+    log(`🌪️ You spawned a ${levels[state.tornado_level].name} Tornado! Power: ${totalPower} vs Town HP: ${townHp}`);
+
+    if (totalPower >= townHp) {
+      const reward = (townHp + (Math.floor(Math.random() * 31) + 20)) * state.coin_multiplier;
+      state.coins += reward;
+      state.towns_destroyed++;
+      playSound(audioSuccess);
+      log(`💥 Town Destroyed! Earned ${reward} coins!`, "success");
+    } else {
+      playSound(audioFail);
+      log("❌ Town Survived. Not strong enough.", "failure");
+    }
+    saveState();
+    updateUI();
+  }
+
+  function upgradeTornado() {
+    if (state.tornado_level >= 6) {
+      playSound(audioFail);
+      log("🌀 Max tornado level reached: EF6!", "failure");
+      return;
+    }
+    const nextLevel = state.tornado_level + 1;
+    const cost = levels[nextLevel].cost;
+    if (state.coins >= cost) {
+      state.coins -= cost;
+      state.tornado_level = nextLevel;
+      playSound(audioSuccess);
+      log(`⬆️ Upgraded to ${levels[state.tornado_level].name}!`, "upgrade");
+      if (state.tornado_level === 6) {
+        playSound(audioEf6);
+        log("🎉 EF6 Level Reached! Congratulations!", "success");
+      }
+    } else {
+      playSound(audioFail);
+      log(`❌ Not enough coins. Need ${cost}, have ${state.coins}.`, "failure");
+    }
+    saveState();
+    updateUI();
+  }
+
+  function upgradePower() {
+    const cost = 100 + state.power_upgrade_level * 100;
+    if (state.coins >= cost) {
+      state.coins -= cost;
+      state.power_upgrade_level++;
+      playSound(audioSuccess);
+      log(`🧪 Power upgraded! +${state.power_upgrade_level * 20} bonus damage.`, "upgrade");
+    } else {
+      playSound(audioFail);
+      log(`❌ Not enough coins for power upgrade. Need ${cost}.`, "failure");
+    }
+    saveState();
+    updateUI();
+  }
+
+  function upgradeMultiplier() {
+    const cost = 200 + (state.coin_multiplier - 1) * 200;
+    if (state.coins >= cost) {
+      state.coins -= cost;
+      state.coin_multiplier++;
+      playSound(audioSuccess);
+      log(`💰 Multiplier increased to x${state.coin_multiplier}!`, "upgrade");
+    } else {
+      playSound(audioFail);
+      log(`❌ Not enough coins for multiplier upgrade. Need ${cost}.`, "failure");
+    }
+    saveState();
+    updateUI();
+  }
+
+  function redeemPromoCode() {
+    const code = promoInputEl.value.trim().toUpperCase();
+    promoInputEl.value = "";
+
+    if (!code) {
+      log("❌ Please enter a promo code.", "failure");
+      playSound(audioFail);
+      return;
+    }
+
+    if (state.usedPromoCodes.includes(code)) {
+      log("❌ Promo code already used.", "failure");
+      playSound(audioFail);
+      return;
+    }
+
+    const reward = promoCodesMaster[code];
+    if (!reward) {
+      log("❌ Invalid promo code.", "failure");
+      playSound(audioFail);
+      return;
+    }
+
+    if (reward.coins) {
+      state.coins += reward.coins;
+      log(`🎉 Promo accepted! +${reward.coins} coins!`, "success");
+    }
+    if (reward.power_upgrade) {
+      state.power_upgrade_level += reward.power_upgrade;
+      log(`🎉 Promo accepted! +${reward.power_upgrade} power upgrade!`, "success");
+    }
+
+    state.usedPromoCodes.push(code);
+    playSound(audioSuccess);
+    saveState();
+    updateUI();
+  }
+
+  function askUsername() {
+    let name = prompt("Enter your username:", "Player");
+    if (name) {
+      state.username = name.trim() || "Player";
+    }
+    saveState();
+    updateUI();
+  }
+
+  function init() {
+    loadState();
+    askUsername();
+    updateUI();
+
+    document.getElementById("spawnBtn").onclick = spawnTornado;
+    document.getElementById("upgradeTornadoBtn").onclick = upgradeTornado;
+    document.getElementById("upgradePowerBtn").onclick = upgradePower;
+    document.getElementById("upgradeMultiplierBtn").onclick = upgradeMultiplier;
+    document.getElementById("promoBtn").onclick = redeemPromoCode;
+
+    function startMusicOnInteract() {
+      startIntroMusic();
+      window.removeEventListener("click", startMusicOnInteract);
+      window.removeEventListener("keydown", startMusicOnInteract);
+    }
+    window.addEventListener("click", startMusicOnInteract);
+    window.addEventListener("keydown", startMusicOnInteract);
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>
